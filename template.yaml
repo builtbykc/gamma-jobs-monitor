@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+
+Description: >
+  GAMMA Jobs Monitor — Real-time SDE job alerts from Amazon, Microsoft,
+  Google, Meta, and Apple delivered to a Telegram channel.
+
+# ── Parameters ────────────────────────────────────────────────────────────────
+Parameters:
+  TelegramBotTokenAmazon:
+    Type: String
+    NoEcho: true
+    Description: "Telegram bot token for Amazon alerts"
+
+  TelegramChatId:
+    Type: String
+    Description: "GAMMA Jobs Telegram channel ID"
+
+# ── Global Lambda defaults ────────────────────────────────────────────────────
+Globals:
+  Function:
+    Runtime:       python3.13
+    Timeout:       60
+    MemorySize:    256
+    Architectures: [arm64]
+
+# ── Resources ─────────────────────────────────────────────────────────────────
+Resources:
+
+  # ── Amazon DynamoDB table ───────────────────────────────────────────────────
+  AmazonSeenJobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: gamma-jobs-amazon-seen
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── Amazon Lambda ───────────────────────────────────────────────────────────
+  AmazonJobsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: gamma-jobs-amazon
+      CodeUri:      lambdas/amazon/
+      Handler:      lambda_function.lambda_handler
+      Description:  "gamma-jobs-amazon — Polls Amazon Jobs and sends Telegram alerts"
+
+      Environment:
+        Variables:
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotTokenAmazon
+          TELEGRAM_CHAT_ID:   !Ref TelegramChatId
+          DYNAMODB_TABLE:     !Ref AmazonSeenJobsTable
+
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AmazonSeenJobsTable
+
+      Events:
+        BusinessHoursCheck:
+          Type: Schedule
+          Properties:
+            Name:        gamma-jobs-amazon-business-hours
+            Schedule:    "cron(0/15 12-23 ? * MON-FRI *)"
+            Description: "Every 15 min, Mon-Fri 7AM-6PM EST"
+            Enabled:     true
+
+        WeekdayOffHoursCheck:
+          Type: Schedule
+          Properties:
+            Name:        gamma-jobs-amazon-weekday-offhours
+            Schedule:    "cron(0/30 0-11 ? * MON-FRI *)"
+            Description: "Every 30 min, Mon-Fri midnight-7AM EST"
+            Enabled:     true
+
+        WeekendsCheck:
+          Type: Schedule
+          Properties:
+            Name:        gamma-jobs-amazon-weekends
+            Schedule:    "cron(0/30 * ? * SAT-SUN *)"
+            Description: "Every 30 min on weekends"
+            Enabled:     true
+
+  # ── CloudWatch alarm ────────────────────────────────────────────────────────
+  AmazonErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:          gamma-jobs-amazon-errors
+      MetricName:         Errors
+      Namespace:          AWS/Lambda
+      Dimensions:
+        - Name:  FunctionName
+          Value: !Ref AmazonJobsFunction
+      Statistic:          Sum
+      Period:             300
+      EvaluationPeriods:  1
+      Threshold:          1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData:   notBreaching
+
+# ── Outputs ───────────────────────────────────────────────────────────────────
+Outputs:
+  AmazonFunctionName:
+    Description: Amazon Lambda function name
+    Value:       !Ref AmazonJobsFunction
+
+  AmazonFunctionArn:
+    Description: Amazon Lambda function ARN
+    Value:       !GetAtt AmazonJobsFunction.Arn
+
+  AmazonDynamoDBTable:
+    Description: Amazon DynamoDB table name
+    Value:       !Ref AmazonSeenJobsTable
