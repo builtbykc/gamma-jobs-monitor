@@ -38,6 +38,6 @@ jobs:
             --no-fail-on-empty-changeset \
             --capabilities CAPABILITY_IAM \
             --parameter-overrides \
-              TelegramBotTokenAmazon="${{ secrets.TELEGRAM_BOT_TOKEN_AMAZON }}" \
-              TelegramBotTokenMicrosoft="${{ secrets.TELEGRAM_BOT_TOKEN_MICROSOFT }}" \              
-              TelegramChatId="${{ secrets.TELEGRAM_CHAT_ID }}"
+              "TelegramBotTokenAmazon=${{ secrets.TELEGRAM_BOT_TOKEN_AMAZON }}" \
+              "TelegramBotTokenMicrosoft=${{ secrets.TELEGRAM_BOT_TOKEN_MICROSOFT }}" \              
+              "TelegramChatId=${{ secrets.TELEGRAM_CHAT_ID }}"
