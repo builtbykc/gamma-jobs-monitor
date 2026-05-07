@@ -12,6 +12,11 @@ Parameters:
     NoEcho: true
     Description: "Telegram bot token for Amazon alerts"
 
+  TelegramBotTokenMicrosoft:
+    Type: String
+    NoEcho: true
+    Description: "Telegram bot token for Microsoft alerts" 
+
   TelegramChatId:
     Type: String
     Description: "GAMMA Jobs Telegram channel ID"
@@ -84,7 +89,7 @@ Resources:
             Description: "Every 30 min on weekends"
             Enabled:     true
 
-  # ── CloudWatch alarm ────────────────────────────────────────────────────────
+  # ── Amazon CloudWatch alarm ────────────────────────────────────────────────────────
   AmazonErrorAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -94,6 +99,80 @@ Resources:
       Dimensions:
         - Name:  FunctionName
           Value: !Ref AmazonJobsFunction
+      Statistic:          Sum
+      Period:             300
+      EvaluationPeriods:  1
+      Threshold:          1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData:   notBreaching
+
+  # ── Microsoft DynamoDB table ────────────────────────────────────────────────
+  MicrosoftSeenJobsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: gamma-jobs-microsoft-seen
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: job_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: job_id
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+
+  # ── Microsoft Lambda ─────────────────────────────────────────────────────────
+  MicrosoftJobsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: gamma-jobs-microsoft
+      CodeUri:      lambdas/microsoft/
+      Handler:      lambda_function.lambda_handler
+      Description:  "gamma-jobs-microsoft — Polls Microsoft Jobs and sends Telegram alerts"
+
+      Environment:
+        Variables:
+          TELEGRAM_BOT_TOKEN: !Ref TelegramBotTokenMicrosoft
+          TELEGRAM_CHAT_ID:   !Ref TelegramChatId
+          DYNAMODB_TABLE:     !Ref MicrosoftSeenJobsTable
+
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref MicrosoftSeenJobsTable
+
+      Events:
+        BusinessHoursCheck:
+          Type: Schedule
+          Properties:
+            Schedule:    "cron(0/15 12-23 ? * MON-FRI *)"
+            Description: "Every 15 min, Mon-Fri 7AM-6PM EST"
+            Enabled:     true
+
+        WeekdayOffHoursCheck:
+          Type: Schedule
+          Properties:
+            Schedule:    "cron(0/30 0-11 ? * MON-FRI *)"
+            Description: "Every 30 min, Mon-Fri midnight-7AM EST"
+            Enabled:     true
+
+        WeekendsCheck:
+          Type: Schedule
+          Properties:
+            Schedule:    "cron(0/30 * ? * SAT-SUN *)"
+            Description: "Every 30 min on weekends"
+            Enabled:     true
+
+  # ── Microsoft CloudWatch alarm ───────────────────────────────────────────────
+  MicrosoftErrorAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName:          gamma-jobs-microsoft-errors
+      MetricName:         Errors
+      Namespace:          AWS/Lambda
+      Dimensions:
+        - Name:  FunctionName
+          Value: !Ref MicrosoftJobsFunction
       Statistic:          Sum
       Period:             300
       EvaluationPeriods:  1
@@ -114,3 +193,15 @@ Outputs:
   AmazonDynamoDBTable:
     Description: Amazon DynamoDB table name
     Value:       !Ref AmazonSeenJobsTable
+
+  MicrosoftFunctionName:
+    Description: Microsoft Lambda function name
+    Value:       !Ref MicrosoftJobsFunction
+
+  MicrosoftFunctionArn:
+    Description: Microsoft Lambda function ARN
+    Value:       !GetAtt MicrosoftJobsFunction.Arn
+
+  MicrosoftDynamoDBTable:
+    Description: Microsoft DynamoDB table name
+    Value:       !Ref MicrosoftSeenJobsTable
