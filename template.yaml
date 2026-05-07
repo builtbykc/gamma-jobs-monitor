@@ -66,7 +66,6 @@ Resources:
         BusinessHoursCheck:
           Type: Schedule
           Properties:
-            Name:        gamma-jobs-amazon-business-hours
             Schedule:    "cron(0/15 12-23 ? * MON-FRI *)"
             Description: "Every 15 min, Mon-Fri 7AM-6PM EST"
             Enabled:     true
@@ -74,7 +73,6 @@ Resources:
         WeekdayOffHoursCheck:
           Type: Schedule
           Properties:
-            Name:        gamma-jobs-amazon-weekday-offhours
             Schedule:    "cron(0/30 0-11 ? * MON-FRI *)"
             Description: "Every 30 min, Mon-Fri midnight-7AM EST"
             Enabled:     true
@@ -82,7 +80,6 @@ Resources:
         WeekendsCheck:
           Type: Schedule
           Properties:
-            Name:        gamma-jobs-amazon-weekends
             Schedule:    "cron(0/30 * ? * SAT-SUN *)"
             Description: "Every 30 min on weekends"
             Enabled:     true
