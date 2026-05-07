@@ -31,12 +31,10 @@ jobs:
 
       - name: Create params file
         run: |
-          cat > params.json << EOF
-          [
-            {"ParameterKey": "TelegramBotTokenAmazon", "ParameterValue": "${{ secrets.TELEGRAM_BOT_TOKEN_AMAZON }}"},
-            {"ParameterKey": "TelegramBotTokenMicrosoft", "ParameterValue": "${{ secrets.TELEGRAM_BOT_TOKEN_MICROSOFT }}"},
-            {"ParameterKey": "TelegramChatId", "ParameterValue": "${{ secrets.TELEGRAM_CHAT_ID }}"}
-          ]
+          cat > params.yaml << EOF
+          TelegramBotTokenAmazon: "${{ secrets.TELEGRAM_BOT_TOKEN_AMAZON }}"
+          TelegramBotTokenMicrosoft: "${{ secrets.TELEGRAM_BOT_TOKEN_MICROSOFT }}"
+          TelegramChatId: "${{ secrets.TELEGRAM_CHAT_ID }}"
           EOF
 
       - name: SAM Deploy
@@ -47,4 +45,4 @@ jobs:
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
             --capabilities CAPABILITY_IAM \
-            --parameter-overrides file://params.json
+            --parameter-overrides file://params.yaml
