@@ -33,8 +33,10 @@ jobs:
         run: |
           sam deploy \
             --stack-name gamma-jobs-monitor \
+            --resolve-s3 \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
+            --capabilities CAPABILITY_IAM \
             --parameter-overrides \
               TelegramBotTokenAmazon="${{ secrets.TELEGRAM_BOT_TOKEN_AMAZON }}" \
               TelegramChatId="${{ secrets.TELEGRAM_CHAT_ID }}"
