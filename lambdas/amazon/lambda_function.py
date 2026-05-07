@@ -30,6 +30,7 @@ SEARCH_PARAMS   = {
     "sort":                      "recent",
 }
 
+# Mimic a real browser to avoid being blocked by Amazon's bot detection.
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -39,7 +40,9 @@ HEADERS = {
     "Accept": "application/json",
 }
 
-# Title filter — only notify on actual SDE roles
+# Regex to filter job titles to actual SDE roles.
+# Catches "SDE", "Software Development Engineer", "Software Engineer", etc.
+# Case-insensitive to handle mixed-case titles from the API.
 SDE_PATTERN = re.compile(
     r'(SDE|software\s+dev[\w]*\s+eng[\w]*|software\s+engineer)',
     re.IGNORECASE
@@ -207,7 +210,7 @@ def lambda_handler(event, context):
             send_telegram(build_digest(new_jobs))
             print(f"[INFO] Digest sent for {len(new_jobs)} job(s)")
         else:
-            print("[INFO] No new jobs. Nothing to notify.")        
+            print("[INFO] No new jobs. Nothing to notify.")
 
         return {
             "statusCode": 200,
