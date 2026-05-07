@@ -3,7 +3,7 @@ name: Deploy GAMMA Jobs Monitor
 on:
   push:
     branches:
-      - main
+      - master
   workflow_dispatch:
 
 jobs:
