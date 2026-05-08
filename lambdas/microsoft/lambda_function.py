@@ -12,7 +12,7 @@ import re
 import time
 import boto3
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 # ── Environment variables ─────────────────────────────────────────────────────
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -22,20 +22,17 @@ DYNAMODB_TABLE   = os.environ["DYNAMODB_TABLE"]
 # ── Microsoft Jobs API ────────────────────────────────────────────────────────
 MICROSOFT_URL = "https://apply.careers.microsoft.com/api/pcsx/search"
 SEARCH_PARAMS = {
-    "domain":                 "microsoft.com",
-    "query":                  "software engineer",
-    "location":               "United States",
-    "sort_by":                "date",
-    "filter_include_remote":  1,
-    "filter_profession":      "software engineering",
-    "filter_employment_type": "full-time",
-    "num":                    100,
-    "start":                  0,
+    "domain":                "microsoft.com",
+    "query":                 "software engineer",
+    "location":              "United States",
+    "sort_by":               "new",
+    "filter_include_remote": 1,
 }
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept":     "application/json",
+    "Referer":    "https://apply.careers.microsoft.com/",
 }
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -45,6 +42,7 @@ SDE_PATTERN = re.compile(
 )
 TTL_SECONDS  = 90 * 24 * 3600
 SECONDS_24HR = 24 * 3600
+MAX_PAGES    = 10   # safety limit — max 10 pages ~100 jobs
 
 # ── AWS clients ───────────────────────────────────────────────────────────────
 dynamodb = boto3.resource("dynamodb")
@@ -54,17 +52,44 @@ table    = dynamodb.Table(DYNAMODB_TABLE)
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 
 def fetch_jobs() -> list[dict]:
+    """Paginate through Microsoft Jobs API until all results fetched."""
     try:
-        resp = requests.get(
-            MICROSOFT_URL,
-            params=SEARCH_PARAMS,
-            headers=HEADERS,
-            timeout=15,
-        )
-        resp.raise_for_status()
-        positions = resp.json().get("data", {}).get("positions", [])
-        print(f"[INFO] Fetched {len(positions)} Microsoft jobs")
+        positions = []
+        start     = 0
+        pages     = 0
+        session   = requests.Session()
+        session.headers.update(HEADERS)
+
+        while True:
+            if pages >= MAX_PAGES:
+                print(f"[INFO] Reached page limit of {MAX_PAGES}")
+                break
+
+            resp = session.get(
+                MICROSOFT_URL,
+                params={**SEARCH_PARAMS, "start": start},
+                timeout=15,
+            )
+            pages += 1
+            resp.raise_for_status()
+
+            data  = resp.json().get("data", {})
+            batch = data.get("positions", [])
+            total = data.get("count", 0)
+
+            if not batch:
+                break
+
+            positions.extend(batch)
+            start += len(batch)
+            print(f"[INFO] Fetched {start}/{total} Microsoft jobs")
+
+            if start >= total:
+                break
+
+        print(f"[INFO] Total fetched: {len(positions)} Microsoft jobs")
         return positions
+
     except Exception as e:
         print(f"[ERROR] Fetch failed: {e}")
         return []
@@ -74,16 +99,16 @@ def fetch_jobs() -> list[dict]:
 
 def normalise(job: dict) -> dict:
     """Map Microsoft API fields to standard shape."""
-    job_id      = str(job.get("displayJobId", ""))
-    locations   = job.get("standardizedLocations") or job.get("locations") or []
-    location    = " | ".join(locations) if locations else "N/A"
+    job_id    = str(job.get("displayJobId", ""))
+    locations = job.get("standardizedLocations") or job.get("locations") or []
+    location  = " | ".join(locations) if locations else "N/A"
     return {
-        "job_id":     f"microsoft_{job_id}",
-        "title":      job.get("name", ""),
-        "location":   location,
-        "team":       job.get("department", "N/A"),
-        "posted_ts":  job.get("postedTs", 0),
-        "url":        f"https://apply.careers.microsoft.com{job.get('positionUrl', '')}",
+        "job_id":    f"microsoft_{job_id}",
+        "title":     job.get("name", ""),
+        "location":  location,
+        "team":      job.get("department", "N/A"),
+        "posted_ts": job.get("postedTs", 0),
+        "url":       f"https://apply.careers.microsoft.com{job.get('positionUrl', '')}",
     }
 
 
