@@ -1,5 +1,8 @@
+
+.gemini/
 .aws-sam/
 __pycache__/
 *.pyc
 .env
 samconfig.toml
+.DS_Store
