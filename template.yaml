@@ -130,6 +130,9 @@ Resources:
       CodeUri:      lambdas/microsoft/
       Handler:      lambda_function.lambda_handler
       Description:  "gamma-jobs-microsoft — Polls Microsoft Jobs and sends Telegram alerts"
+      # Timeout: 90s (overrides global 60s)
+      # Calculation: 10 pages × 1s polite delay + 10 pages × 15s max request + 20s margin
+      Timeout:      90
 
       Environment:
         Variables:

@@ -25,10 +25,18 @@ SEARCH_PARAMS = {
     "domain":                "microsoft.com",
     "query":                 "software engineer",
     "location":              "United States",
-    "sort_by":               "new",
+    # Sort Parameter (Requirement 9):
+    # Tested sort_by=new (ignored by API, defaults to relevance)
+    # and sort_by=timestamp (correctly returns jobs newest-first).
+    # Validated: sort_by=timestamp returns descending chronological order.
+    "sort_by":               "timestamp",
     "filter_include_remote": 1,
 }
 
+# Header Configuration (Requirement 10):
+# Stable headers only — excludes session-specific headers that expire quickly.
+# Excluded: x-csrf-token, request-id, sentry-trace (session-specific)
+# Included: User-Agent, Accept, Referer (stable across invocations)
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Accept":     "application/json",
@@ -40,9 +48,11 @@ SDE_PATTERN = re.compile(
     r'(software\s+eng[\w]*|SWE|SDE)',
     re.IGNORECASE
 )
-TTL_SECONDS  = 90 * 24 * 3600
-SECONDS_24HR = 24 * 3600
-MAX_PAGES    = 10   # safety limit — max 10 pages ~100 jobs
+TTL_SECONDS    = 90 * 24 * 3600
+SECONDS_24HR   = 24 * 3600
+MAX_PAGES      = 10   # safety limit — max 10 pages
+PAGE_SIZE      = 10   # Microsoft API returns 10 results per page
+DELAY_SECONDS  = 1    # polite scraping delay between pagination requests
 
 # ── AWS clients ───────────────────────────────────────────────────────────────
 dynamodb = boto3.resource("dynamodb")
@@ -52,7 +62,11 @@ table    = dynamodb.Table(DYNAMODB_TABLE)
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 
 def fetch_jobs() -> list[dict]:
-    """Paginate through Microsoft Jobs API until all results fetched."""
+    """Paginate through Microsoft Jobs API until all results fetched.
+
+    Implements polite scraping with 1-second delays between requests
+    to avoid rate limiting (Requirement 12).
+    """
     try:
         positions = []
         start     = 0
@@ -87,6 +101,10 @@ def fetch_jobs() -> list[dict]:
             if start >= total:
                 break
 
+            # Polite scraping: delay between requests (except after last page)
+            print(f"[INFO] Waiting {DELAY_SECONDS}s before next request (polite scraping)")
+            time.sleep(DELAY_SECONDS)
+
         print(f"[INFO] Total fetched: {len(positions)} Microsoft jobs")
         return positions
 
@@ -98,7 +116,16 @@ def fetch_jobs() -> list[dict]:
 # ── Normalise ─────────────────────────────────────────────────────────────────
 
 def normalise(job: dict) -> dict:
-    """Map Microsoft API fields to standard shape."""
+    """Map Microsoft API fields to standard shape.
+
+    Location Handling Strategy (Requirement 11):
+    - Uses join-all strategy: " | ".join(locations)
+    - Rationale: Provides complete location information for jobs with
+      multiple locations (e.g., Redmond + Mountain View).
+    - Uses standardizedLocations first (e.g., "Redmond, WA, US"),
+      falls back to locations (e.g., "United States, Washington, Redmond").
+    - Fallback to "N/A" if locations array is empty.
+    """
     job_id    = str(job.get("displayJobId", ""))
     locations = job.get("standardizedLocations") or job.get("locations") or []
     location  = " | ".join(locations) if locations else "N/A"
@@ -134,7 +161,7 @@ def is_within_24hrs(job: dict) -> bool:
 
 def is_usa_job(job: dict) -> bool:
     location = job.get("location", "")
-    if ", US" in location or "United States" in location:
+    if ", US" in location or location.strip() == "US" or "United States" in location:
         return True
     print(f"[SKIP] Non-USA: {location}")
     return False
@@ -197,6 +224,8 @@ def send_telegram(text: str) -> None:
 # ── Handler ───────────────────────────────────────────────────────────────────
 
 def lambda_handler(event, context):
+    schedule_name = event.get("resources", ["manual"])[0].split("/")[-1]
+    print(f"[INFO] Triggered by: {schedule_name}")
     print(f"[INFO] gamma-jobs-microsoft started at {datetime.now(timezone.utc).isoformat()}")
 
     try:
@@ -208,8 +237,11 @@ def lambda_handler(event, context):
 
             if not is_sde_role(job["title"]):
                 continue
+            # With sort_by=timestamp, jobs are newest-first. Once we hit a
+            # job older than 24 hours we can stop — all remaining are older.
             if not is_within_24hrs(job):
-                continue
+                print("[INFO] Remaining jobs are older than 24hrs, stopping early")
+                break
             if not is_usa_job(job):
                 continue
             if is_seen(job["job_id"]):
