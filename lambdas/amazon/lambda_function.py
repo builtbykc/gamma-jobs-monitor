@@ -12,7 +12,7 @@ import os
 import re
 import boto3
 import requests
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 # ── Env vars (set in SAM template / Lambda console) ──────────────────────────
 TELEGRAM_TOKEN   = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -40,6 +40,10 @@ HEADERS = {
     "Accept": "application/json",
 }
 
+# Use a session to reuse connections
+http_session = requests.Session()
+http_session.headers.update(HEADERS)
+
 # Regex to filter job titles to actual SDE roles.
 # Catches "SDE", "Software Development Engineer", "Software Engineer", etc.
 # Case-insensitive to handle mixed-case titles from the API.
@@ -65,19 +69,7 @@ def is_sde_role(title: str) -> bool:
     return matched
 
 
-def is_within_24hrs(job: dict) -> bool:
-    posted_str = job.get("posted_date", "")
-    if not posted_str:
-        return False
-    try:
-        posted = datetime.strptime(posted_str, "%B %d, %Y").replace(tzinfo=timezone.utc)
-        diff   = datetime.now(timezone.utc) - posted
-        if not (timedelta(hours=-24) <= diff <= timedelta(hours=24)):
-            print(f"[SKIP] Too old ({int(diff.total_seconds()/3600)}hrs): {posted_str}")
-            return False
-        return True
-    except ValueError:
-        return False
+
 
 def is_usa_job(job: dict) -> bool:
     country_code = job.get("country_code", "").upper()
@@ -95,10 +87,9 @@ def is_usa_job(job: dict) -> bool:
 def fetch_jobs() -> list[dict]:
     """Call Amazon Jobs search API and return raw job list."""
     try:
-        resp = requests.get(
+        resp = http_session.get(
             AMAZON_JOBS_URL,
             params=SEARCH_PARAMS,
-            headers=HEADERS,
             timeout=15,
         )
         resp.raise_for_status()
@@ -150,7 +141,6 @@ def build_digest(new_jobs: list[dict]) -> str:
         lines.append(
             f"{i}. <b>{job.get('title', 'N/A')}</b>\n"
             f"   📍 {job.get('location', 'N/A')}\n"
-            f"   🏢 {job.get('business_category', 'N/A')}\n"
             f"   📅 {job.get('posted_date', 'N/A')}\n"
             f"   🔗 <a href='{url}'>Apply</a>"
         )
@@ -161,8 +151,20 @@ def build_digest(new_jobs: list[dict]) -> str:
     )
 
 
-def send_telegram(text: str) -> None:
+def send_telegram(text: str, gif_url: str = None) -> None:
     """Send an HTML-formatted message via Telegram Bot API."""
+    if gif_url and len(text) <= 1024:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAnimation"
+        payload = {
+            "chat_id":    TELEGRAM_CHAT_ID,
+            "animation":  gif_url,
+            "caption":    text,
+            "parse_mode": "HTML",
+        }
+        resp = http_session.post(url, json=payload, timeout=10)
+        if resp.status_code == 200:
+            return
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id":                  TELEGRAM_CHAT_ID,
@@ -170,7 +172,7 @@ def send_telegram(text: str) -> None:
         "parse_mode":               "HTML",
         "disable_web_page_preview": True,
     }
-    resp = requests.post(url, json=payload, timeout=10)
+    resp = http_session.post(url, json=payload, timeout=10)
     resp.raise_for_status()
 
 
@@ -192,8 +194,6 @@ def lambda_handler(event, context):
                 continue
             if not is_sde_role(title):
                 continue
-            if not is_within_24hrs(job):
-                continue
             if not is_usa_job(job):
                 continue
             if is_seen(job_id):
@@ -207,7 +207,8 @@ def lambda_handler(event, context):
         print(f"[INFO] Done — {len(new_jobs)} new job(s) out of {len(jobs)} checked")
 
         if new_jobs:
-            send_telegram(build_digest(new_jobs))
+            gif_url = "https://media.giphy.com/media/l41lOjeQEJEQzCvv2/giphy.gif" # Placeholder Amazon GIF
+            send_telegram(build_digest(new_jobs), gif_url=gif_url)
             print(f"[INFO] Digest sent for {len(new_jobs)} job(s)")
         else:
             print("[INFO] No new jobs. Nothing to notify.")

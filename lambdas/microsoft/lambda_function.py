@@ -199,10 +199,18 @@ def mark_seen(job: dict) -> None:
 def build_digest(new_jobs: list[dict]) -> str:
     lines = []
     for i, job in enumerate(new_jobs, 1):
+        posted_date = "N/A"
+        posted_ts = job.get("posted_ts", 0)
+        if posted_ts:
+            # Handle millisecond timestamps just in case, though API likely returns seconds
+            if posted_ts > 1e11:
+                posted_ts /= 1000
+            posted_date = datetime.fromtimestamp(posted_ts, tz=timezone.utc).strftime("%B %d, %Y")
+
         lines.append(
             f"{i}. <b>{job.get('title', 'N/A')}</b>\n"
             f"   📍 {job.get('location', 'N/A')}\n"
-            f"   🏢 {job.get('team', 'N/A')}\n"
+            f"   📅 {posted_date}\n"
             f"   🔗 <a href='{job.get('url', '')}'>Apply</a>"
         )
     return (
@@ -211,7 +219,18 @@ def build_digest(new_jobs: list[dict]) -> str:
     )
 
 
-def send_telegram(text: str) -> None:
+def send_telegram(text: str, gif_url: str = None) -> None:
+    if gif_url and len(text) <= 1024:
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendAnimation"
+        resp = requests.post(url, json={
+            "chat_id":    TELEGRAM_CHAT_ID,
+            "animation":  gif_url,
+            "caption":    text,
+            "parse_mode": "HTML",
+        }, timeout=10)
+        if resp.status_code == 200:
+            return
+
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     requests.post(url, json={
         "chat_id":                  TELEGRAM_CHAT_ID,
@@ -255,7 +274,8 @@ def lambda_handler(event, context):
         print(f"[INFO] Done — {len(new_jobs)} new job(s) out of {len(raw_jobs)} checked")
 
         if new_jobs:
-            send_telegram(build_digest(new_jobs))
+            gif_url = "https://media.giphy.com/media/26ufmyK5qfG0iB2iY/giphy.gif" # Placeholder Microsoft GIF
+            send_telegram(build_digest(new_jobs), gif_url=gif_url)
             print(f"[INFO] Digest sent for {len(new_jobs)} job(s)")
         else:
             print("[INFO] No new Microsoft jobs.")
