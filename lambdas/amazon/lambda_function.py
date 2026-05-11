@@ -207,7 +207,7 @@ def lambda_handler(event, context):
         print(f"[INFO] Done — {len(new_jobs)} new job(s) out of {len(jobs)} checked")
 
         if new_jobs:
-            gif_url = "https://media.giphy.com/media/l41lOjeQEJEQzCvv2/giphy.gif" # Placeholder Amazon GIF
+            gif_url = "https://media.licdn.com/dms/image/v2/D5622AQGna2dSfHlYrQ/feedshare-shrink_800/B56Z4OuuyiIQAc-/0/1778363593261?e=1779926400&v=beta&t=MNbEphcx87bBtXZS2o8ieG29YERTEvc6IR7a6M7A_bg"
             send_telegram(build_digest(new_jobs), gif_url=gif_url)
             print(f"[INFO] Digest sent for {len(new_jobs)} job(s)")
         else:
